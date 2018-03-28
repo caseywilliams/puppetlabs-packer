@@ -1,4 +1,5 @@
 #!/usr/bin/ruby
+require 'fileutils'
  
 hostname = `vmtoolsd --cmd "info-get guestinfo.hostname"`
 
@@ -17,7 +18,7 @@ end
 Kernel.system('hostname -F /etc/hostname')
  
 dhc = File.read('/etc/dhcp/dhclient.conf')
- 
+
 File.open('/etc/dhcp/dhclient.conf', 'w') do |f|
   <% if ['15.10', '16.04', '16.10', '18.04'].include? @operatingsystemrelease -%>
   dhc.gsub!(/^(send host-name.*)/, "send host-name \"#{hostname}\";")
@@ -26,7 +27,21 @@ File.open('/etc/dhcp/dhclient.conf', 'w') do |f|
   <% end -%>
   f.write(dhc)
 end
- 
+
+<% if ['18.04'].include? @operatingsystemrelease -%>
+# systemd-networkd's DHCP client doesn't seem to function correctly unless a .network file exists:
+ File.open('/etc/systemd/network/10-dhcp.network', 'a') do |f|
+   f.puts <<-NET
+[Match]
+Name=en*
+[Network]
+DHCP=yes
+NET
+ end
+  # Use the systemd-networkd resolv.conf instead of the default:
+  FileUtils.ln_s('/etc/resolv.conf', '/run/systemd/resolve/resolv.conf', :force => true)
+<% end -%>
+
 File.open('/etc/hosts', 'w') do |f|
   f.puts "127.0.0.1 localhost"
   f.puts "127.0.1.1 #{hostname}"
