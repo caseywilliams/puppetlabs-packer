@@ -1,6 +1,6 @@
 #!/usr/bin/ruby
 require 'fileutils'
- 
+
 hostname = `vmtoolsd --cmd "info-get guestinfo.hostname"`
 
 hostname = hostname.chomp
@@ -16,30 +16,34 @@ File.open('/etc/hostname', 'w') do |f|
 end
  
 Kernel.system('hostname -F /etc/hostname')
- 
+
 dhc = File.read('/etc/dhcp/dhclient.conf')
 
-File.open('/etc/dhcp/dhclient.conf', 'w') do |f|
-  <% if ['15.10', '16.04', '16.10', '18.04'].include? @operatingsystemrelease -%>
-  dhc.gsub!(/^(send host-name.*)/, "send host-name \"#{hostname}\";")
-  <% else -%>
-  dhc.gsub!(/^(#send host-name.*)/, "send host-name \"#{hostname}\";")
-  <% end -%>
-  f.write(dhc)
-end
-
 <% if ['18.04'].include? @operatingsystemrelease -%>
+
 # systemd-networkd's DHCP client doesn't seem to function correctly unless a .network file exists:
  File.open('/etc/systemd/network/10-dhcp.network', 'a') do |f|
    f.puts <<-NET
 [Match]
 Name=en*
 [Network]
-DHCP=yes
+DHCP=ipv4
 NET
  end
-  # Use the systemd-networkd resolv.conf instead of the default:
-  # FileUtils.ln_s('/etc/resolv.conf', '/run/systemd/resolve/resolv.conf', :force => true)
+
+Kernel.system("hostnamectl set-hostname #{hostname}")
+
+<% else -%>
+
+File.open('/etc/dhcp/dhclient.conf', 'w') do |f|
+    <% if ['15.10', '16.04', '16.10'].include? @operatingsystemrelease -%>
+  dhc.gsub!(/^(send host-name.*)/, "send host-name \"#{hostname}\";")
+      <% else -%>
+  dhc.gsub!(/^(#send host-name.*)/, "send host-name \"#{hostname}\";")
+      <% end -%>
+  f.write(dhc)
+end
+
 <% end -%>
 
 File.open('/etc/hosts', 'w') do |f|
@@ -52,6 +56,18 @@ puts '- Re-obtaining DHCP lease...'
 <% if ['15.10', '16.04', '16.10'].include? @operatingsystemrelease -%>
 Kernel.system('/usr/sbin/service networking restart')
 <% elsif ['18.04'].include? @operatingsystemrelease -%>
+# Enable verbose logging for systemd-networkd temporarily:
+networkdir = '/etc/systemd/system/systemd-networkd.service.d'
+resolvedir = '/etc/systemd/system/systemd-resolved.service.d'
+[networkdir, resolvedir].each do |dir|
+  FileUtils.mkdir_p(dir)
+  File.open(File.join(dir, '10-debug.conf'), 'a') do |f|
+    f.puts("[Service]")
+    f.puts("Environment=SYSTEMD_LOG_LEVEL=debug")
+  end
+end
+
+Kernel.system('/bin/systemctl daemon-reload')
 Kernel.system('/bin/systemctl restart systemd-networkd')
 <% else -%>
 Kernel.system('/sbin/ifdown eth0 && /sbin/ifup eth0')
