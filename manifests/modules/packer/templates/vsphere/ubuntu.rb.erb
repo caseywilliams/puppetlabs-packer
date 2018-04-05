@@ -32,6 +32,8 @@ NET
  end
 
 Kernel.system("hostnamectl set-hostname #{hostname}")
+File.delete('/etc/machine-id')
+Kernel.system("systemd-machine-id-setup")
 
 <% else -%>
 
