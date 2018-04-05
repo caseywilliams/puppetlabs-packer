@@ -1,4 +1,5 @@
 #!/usr/bin/ruby
+
 hostname = `vmtoolsd --cmd "info-get guestinfo.hostname"`
 
 hostname = hostname.chomp
@@ -15,11 +16,12 @@ end
  
 Kernel.system('hostname -F /etc/hostname')
 
-dhc = File.read('/etc/dhcp/dhclient.conf')
-
 <% if ['18.04'].include? @operatingsystemrelease -%>
+# systemd-networkd
 Kernel.system("hostnamectl set-hostname #{hostname}")
 <% else -%>
+# NetworkManager
+dhc = File.read('/etc/dhcp/dhclient.conf')
 File.open('/etc/dhcp/dhclient.conf', 'w') do |f|
   <% if ['15.10', '16.04', '16.10'].include? @operatingsystemrelease -%>
   dhc.gsub!(/^(send host-name.*)/, "send host-name \"#{hostname}\";")
@@ -41,11 +43,10 @@ puts '- Re-obtaining DHCP lease...'
 # NetworkManager
 Kernel.system('/usr/sbin/service networking restart')
 <% elsif ['18.04'].include? @operatingsystemrelease -%>
-# systemd-networkd's DHCP client uses /etc/machine-id instead of the link layer address (as dhclient does) to generate the DUID
+# systemd-networkd's DHCP client uses /etc/machine-id instead of the link layer address (as dhclient does) to generate a client ID
 # /etc/machine-id will be the same on VMs cloned from the same template, so regenerate it:
 File.delete('/etc/machine-id')
 Kernel.system("systemd-machine-id-setup")
-# systemd-networkd
 Kernel.system('/bin/systemctl daemon-reload')
 Kernel.system('/bin/systemctl restart systemd-networkd')
 <% else -%>
@@ -55,11 +56,9 @@ Kernel.system('/sbin/ifdown eth0 && /sbin/ifup eth0')
 puts '- Cleaning up...'
  
 #Kernel.system('rm /etc/vsphere-bootstrap.rb')
-<% unless ['18.04'].include? @operatingsystemrelease -%>
-# The presence of rc.local on systemd will result in an rc.local service being created
+# /etc/rc.local runs this bootstrap script; Make it a noop after the first run:
 Kernel.system('echo "exit 0" > /etc/rc.local')
-<% end -%>
- 
+
 puts "\n"
  
 puts 'Done!'
